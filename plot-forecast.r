@@ -27,7 +27,7 @@ make_forecast_plot <- function(){
   
   for(i in 1:11){
     N <- length(dates[[i]])
-    forecastSteps <- 13
+    forecastSteps <- 10
     N2 <- N + forecastSteps
     country <- countries[[i]]
     
@@ -95,6 +95,8 @@ make_single_plot <- function(data_country, data_country_forecast, filename, coun
   data_deaths_forecast <- data_country_forecast %>%
     select(time, estimated_deaths_forecast) %>%
     gather("key" = key, "value" = value, -time)
+    print(country)
+    print(transform(rbind(data_deaths, data_deaths_forecast), cumValue=cumsum(value)))
   
   # Force less than 1 case to zero
   data_deaths$value[data_deaths$value < 1] <- NA
@@ -127,12 +129,12 @@ make_single_plot <- function(data_country, data_country_forecast, filename, coun
     ylab("Daily number of deaths\n") + 
     scale_x_date(date_breaks = "weeks", labels = date_format("%e %b")) + 
     scale_y_continuous(trans='log10', labels=comma) + 
-    coord_cartesian(ylim = c(1, 100000), expand = FALSE) + 
+    coord_cartesian(ylim = c(1, 10000), expand = FALSE) + 
     theme_pubr() + 
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
     guides(fill=guide_legend(ncol=1, reverse = TRUE)) + 
     annotate(geom="text", x=data_country$time[length(data_country$time)]+8, 
-             y=10000, label="Forecast",
+             y=5000, label="Forecast",
              color="black")
   print(p)
   
