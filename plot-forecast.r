@@ -96,7 +96,8 @@ make_single_plot <- function(data_country, data_country_forecast, filename, coun
     select(time, estimated_deaths_forecast) %>%
     gather("key" = key, "value" = value, -time)
     print(country)
-    print(transform(rbind(data_deaths, data_deaths_forecast), cumValue=cumsum(value)))
+    print(transform(rbind(subset(data_deaths, key != "estimated_deaths"), data_deaths_forecast[-1,]),
+                    cumValue=cumsum(value)))
   
   # Force less than 1 case to zero
   data_deaths$value[data_deaths$value < 1] <- NA
