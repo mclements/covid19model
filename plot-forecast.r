@@ -125,7 +125,8 @@ make_single_plot <- function(data_country, data_country_forecast, filename, coun
                col = "black", linetype = "dashed", alpha = 0.5) + 
     #scale_fill_manual(name = "", 
     #                 labels = c("Confirmed deaths", "Predicted deaths"),
-    #                 values = c("coral4", "deepskyblue4")) + 
+                                        #                 values = c("coral4", "deepskyblue4")) +
+      ggtitle(country)+
     xlab("Date") +
     ylab("Daily number of deaths\n") + 
     scale_x_date(date_breaks = "weeks", labels = date_format("%e %b")) + 
