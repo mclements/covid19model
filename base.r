@@ -3,6 +3,7 @@ library(data.table)
 library(lubridate)
 library(gdata)
 library(EnvStats)
+library(bayesplot)
 
 countries <- c(
   "Denmark",
@@ -131,9 +132,6 @@ for(Country in countries) {
   }
   f = s * h
   
-  
-  
-  
   y=c(as.vector(as.numeric(d1$Cases)),rep(-1,forecast))
   reported_cases[[Country]] = as.vector(as.numeric(d1$Cases))
   deaths=c(as.vector(as.numeric(d1$Deaths)),rep(-1,forecast))
@@ -222,7 +220,6 @@ save.image(paste0('results/',StanModel,'-',JOBID,'.Rdata'))
 save(fit,prediction,dates,reported_cases,deaths_by_country,countries,estimated.deaths,estimated.deaths.cf,out,covariates,file=paste0('results/',StanModel,'-',JOBID,'-stanfit.Rdata'))
 
 # to visualize results
-library(bayesplot)
 filename <- paste0('base-',JOBID)
 plot_labels <- c("School Closure",
                  "Self Isolation",
@@ -244,5 +241,9 @@ Rt = (as.matrix(out$Rt[,dimensions[2],]))
 colnames(Rt) = countries
 g = (mcmc_intervals(Rt,prob = .9))
 ggsave(sprintf("results/%s-covars-final-rt.pdf",filename),g,width=4,height=6)
+y = as.matrix(out$y)
+colnames(y) = countries
+g = (mcmc_intervals(y,prob = .9))
+ggsave(sprintf("results/%s-covars-y.pdf",filename),g,width=4,height=6)
 system(paste0("Rscript plot-3-panel.r ", filename,'.Rdata'))
 system(paste0("Rscript plot-forecast.r ",filename,'.Rdata')) ## to run this code you will need to adjust manual values of forecast required
