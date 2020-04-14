@@ -200,7 +200,7 @@ if(DEBUG) {
 ## library(gdata)
 ## library(EnvStats)
 ## library(bayesplot)
-## load("results/base-1296366.Rdata")
+load("results/base-875520.Rdata")
 library(TMB)
 covariateNames <- c("school closure",
                     "self isolating if ill",
@@ -258,16 +258,16 @@ Type objective_function<Type>::operator() ()
       Rt(i,m) = exp(alpha-(x*beta).sum());
       // Rt(i,m) = exp(alpha+u(m)-(x*beta).sum());
       convolution=Type(0);
-      for(int j=0; j<i-1; j++) {
-	convolution += prediction(j, m)*SI(i-j);
+      for(int j=0; j<i; j++) {
+	convolution += prediction(j, m)*SI(i-j-1);
       }
       prediction(i, m) = Rt(i,m) * convolution;
     }
     E_deaths(0, m)= Type(1.0e-9);
     for (int i=1; i<N2; i++) {
       E_deaths(i,m)= Type(0);
-      for(int j=0; j<i-1; j++) {
-	E_deaths(i,m) += prediction(j,m)*f(i-j,m);
+      for(int j=0; j<i; j++) {
+	E_deaths(i,m) += prediction(j,m)*f(i-j-1,m);
       }
     }
   }
@@ -366,3 +366,185 @@ xtabs(~x4+x0,data=stan_data3) # lockdown => school closures
 xtabs(~x5+x0,data=stan_data3) # good concordance between school closures and social distancing
 
 
+library(Rcpp)
+library(RcppArmadillo)
+library(inline)
+src <- "
+#include<RcppArmadillo.h>
+using namespace arma;
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+mat predictFlaxman(int N,  // number of MCMC samples (e.g. 4000)
+                   int N0, // days in the initial period (e.g. 6)
+                   int N2, // total number of days (e.g. 75)
+                   vec y,  // average daily counts in initial period (length N)
+                   vec SI, // fixed pre-calculated SI using emprical data from Neil Fergusson (length N2)
+                   mat Rt, // reproduction numbers (dim N2 x N)
+                   vec f   // h * s; improper density from incidence to death (length N2)
+                   ) {
+    mat prediction = zeros<mat>(N2,N);
+    mat E_deaths  = zeros<mat>(N2,N);
+    for (size_t n=0; n<N; n++) {
+        for (size_t i=0; i<N0; i++) {
+            prediction(i,n) = y(n);
+        }
+        for (size_t i=N0; i<N2; i++) {
+            double convolution=0.0;
+            for (size_t j=0; j<i; j++) {
+                convolution += prediction(j,n)*SI(i-j-1); 
+            }
+            prediction(i,n) = Rt(i,n) * convolution;
+        }
+        E_deaths(0,n)= 1.0e-9;
+        for (size_t i=1; i<N2; i++) {
+            E_deaths(i,n)= 0.0;
+            for (size_t j=0; j<i; j++) {
+                E_deaths(i,n) += prediction(j,n)*f(i-j-1);
+            }
+        }
+    }
+    // return prediction;
+    return E_deaths;
+}"
+sourceCpp(code=src)
+if (FALSE) {
+    ## load("~/repos/covid19model/results/base-1296366.Rdata")
+    load("results/base-875520.Rdata")
+}
+
+## dim(out$mu) # 10000 x 11
+## dim(out$Rt) # 10000 x 100 x 11
+## dim(out$y) # 10000 x 11
+## dim(stan_data$f) # 100 x 11
+## dim(out$alpha) # 10000 x 6
+index <- 10
+args <- list(N=nrow(out$mu),
+             N0=stan_data$N0,
+             N2=stan_data$N2,
+             y=out$y[,index],
+             SI=stan_data$SI,
+             Rt=t(out$Rt[,,index]), # transpose required
+             f=stan_data$f[,index])
+pred1 <- do.call(predictFlaxman,args)
+pred2 <- t(apply(pred1,1,quantile,c(0.5,0.025,0.975)))
+
+args <- list(N=nrow(out$mu),
+             N0=stan_data$N0,
+             N2=stan_data$N2,
+             y=out$y[,index],
+             SI=stan_data$SI,
+             Rt=t(out$Rt[,,index]), # transpose required
+             f=stan_data$f[,index])
+pred1 <- do.call(predictFlaxman,args)
+pred2 <- t(apply(pred1,1,quantile,c(0.5,0.025,0.975)))
+
+range(t(out$E_deaths[,,index])-pred1)
+## range(t(out$prediction[,,index])-pred1)
+
+## Model for lock-down from 15 March
+dindex <- which(dates[[index]][1]+0:74 == as.Date("2020-03-15"))
+args3 <- list(N=nrow(out$mu),
+             N0=stan_data$N0,
+             N2=stan_data$N2,
+             y=out$y[,index],
+             SI=stan_data$SI,
+             Rt=t(out$Rt[,,index]), # transpose required
+             f=stan_data$f[,index])
+ratio <- exp(-out$alpha[,5])
+args3$Rt[dindex:100,] <- t(t(args3$Rt[dindex:100,]) * ratio)
+pred3 <- t(apply(do.call(predictFlaxman,args3),1,quantile,c(0.5,0.025,0.975)))
+## Model for lockdown from 31 March
+dindex <- which(dates[[index]][1]+0:74 == as.Date("2020-03-31"))
+args3 <- list(N=nrow(out$mu),
+             N0=stan_data$N0,
+             N2=stan_data$N2,
+             y=out$y[,index],
+             SI=stan_data$SI,
+             Rt=t(out$Rt[,,index]), # transpose required
+             f=stan_data$f[,index])
+ratio <- exp(-out$alpha[,5])
+args3$Rt[dindex:100,] <- t(t(args3$Rt[dindex:100,]) * ratio)
+pred4 <- t(apply(do.call(predictFlaxman,args3),1,quantile,c(0.5,0.025,0.975)))
+
+pop <- subset(d, Countries.and.territories=="Sweden")$popData2018[1]
+
+## counts
+matplot(pred2[1:75,], type="l", log="y", ylim=c(1,10000), axes=FALSE, col=2, lty=c(1,2,2))
+axis(1, at=1:75, labels=substring(as.character(dates[[index]][1]+0:74),6), las=2)
+axis(2)
+box()
+matlines(pred3[1:75,], col=1, lty=c(1,2,2))
+matlines(pred4[1:75,], col="green", lty=c(1,2,2))
+legend("topleft", c("Current history","Lockdown from 31 March","Lockdown from 15 March"),
+       col=c("red","green","black"), lty=1, bty="n")
+
+## rates
+matplot(pred2[1:75,]/pop*1e5, type="l", log="y", ylim=c(0.01,100), axes=FALSE, col=2, lty=c(1,2,2),
+        xlab="Date", ylab="Daily mortality rate per 100,000")
+axis(1, at=1:75, labels=substring(as.character(dates[[index]][1]+0:74),6), las=2)
+axis(2)
+box()
+matlines(pred3[1:75,]/pop*1e5, col=1, lty=c(1,2,2))
+
+
+url <- "https://opendata.ecdc.europa.eu/covid19/casedistribution/csv"
+d <- read.csv(url, stringsAsFactors = FALSE)
+d <- transform(d, rate=deaths/popData2018*1e5)
+d <- transform(d, date=as.Date(sprintf("%s-%s-%s",
+                                       substring(dateRep,7,11),
+                                       substring(dateRep,4,5),
+                                       substring(dateRep,1,2))))
+## rolling average
+rollingAverage <- function(x,length=1)
+    sapply(1:length(x), function(i) mean(x[pmax(1,i-length+1):i]))
+basePlot <- function(country="Sweden", ...) {
+    d2 <- subset(d, countriesAndTerritories==country & date>=as.Date("2020-02-15"))
+    with(d2, plot(date, rollingAverage(rate), type="l", axes=FALSE, xlab="",
+                  ylab="Daily mortality rate per 100,000", ...))
+    index <- seq(1,length(d2$date),by=7)
+    with(d2, axis(1, date[index], labels=date[index], las=2))
+    axis(2)
+    box()
+}
+addLines <- function(country, ...) 
+    with(subset(d, countriesAndTerritories==country & date>=as.Date("2020-02-15")),
+         lines(date, rollingAverage(rate), ...))
+par(mar=c(7, 4, 4, 2) + 0.1)
+basePlot("Sweden", log="y", ylim=c(0.001,10))
+addLines("Denmark", col=2)
+addLines("Norway", col=3)
+addLines("Finland", col=4)
+addLines("Germany", col=5)
+legend("topleft", c("Sweden","Denmark","Norway","Finland","Germany"),
+       lty=1, col=1:5, bty="n")
+##
+basePlot("Sweden")
+addLines("Denmark", col=2)
+addLines("Norway", col=3)
+addLines("Finland", col=4)
+addLines("Germany", col=5)
+legend("topleft", c("Sweden","Denmark","Norway","Finland","Germany"),
+       lty=1, col=1:5, bty="n")
+
+
+
+
+addLines("Italy", col=6)
+addLines("Spain", col=6)
+addLines("China", col=6)
+addLines("United_States_of_America", col=6)
+
+
+d4 <- subset(d, Countries.and.territories=="New_Zealand")
+with(d4, lines(1:nrow(d4), rate, col=6))
+d4 <- subset(d, Countries.and.territories=="Norway")
+with(d4, lines(1:nrow(d4), rate, col=6))
+
+
+basePlot()
+d4 <- subset(d, Countries.and.territories=="Germany")
+with(d4, lines(1:nrow(d4), rate, col=6))
+
+basePlot()
+d4 <- subset(d, Countries.and.territories=="Australia")
+with(d4, lines(1:nrow(d4), rate, col=2))
